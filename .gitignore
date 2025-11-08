@@ -1,32 +1,48 @@
-# Prerequisites
-*.d
-
 # Compiled Object files
-*.slo
-*.lo
 *.o
 *.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
 
 # Executables
 *.exe
 *.out
 *.app
+a.out
+
+# Libraries
+*.lib
+*.dll
+*.so
+*.a
+
+# Build directories
+build/
+bin/
+obj/
+Debug/
+Release/
+
+# IDE specific files (e.g., Visual Studio, CLion, VS Code)
+.vs/
+*.suo
+*.user
+*.ncb
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.VC.opendb
+*.vcxproj.user
+*.code-workspace
+.idea/
+cmake-build-*/
+*.iml
+
+# Dependency management (e.g., Conan)
+conan_deps/
+
+# Other temporary or generated files
+*~
+*.bak
+*.swp
+*.tmp
+*.log
+*.ipch

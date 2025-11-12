@@ -1,34 +1,4 @@
-#include <iostream>
-#include <map>
-#include <thread>
-#include <vector>
-#include <mutex>
-#include <unordered_set>
-#include <unordered_map>
-#include <queue>
-#include <atomic>
-#include <ctime>
-#include <chrono>
-
-#include <WS2tcpip.h>
-#include <MSWSock.h>
-
-#pragma comment(lib, "Ws2_32.lib")
-#pragma comment(lib, "MSWSock.lib")
-#pragma comment(lib, "lua54.lib")
-
-extern "C" {
-#include "lua.h"
-#include "lauxlib.h"
-#include "lualib.h"
-}
-
-using namespace std;
-using namespace chrono;
-
-#include "2021_SPRING_PROTOCOL.h"
-#include "Struct.h"
-
+#include "pch.h"
 constexpr int NUM_THREADS = 4;
 constexpr short HP_MAX = 100;
 
@@ -987,5 +957,168 @@ int main()
 	for (auto& th : worker_threads) th.join();
 	closesocket(listenSocket);
 	WSACleanup();
+}
+
+/************************************************************************
+/* HandleDiagnosticRecord : display error/warning information
+/*
+/* Parameters:
+/* hHandle ODBC handle
+/* hType Type of handle (SQL_HANDLE_STMT, SQL_HANDLE_ENV, SQL_HANDLE_DBC)
+/* RetCode Return code of failing command
+/************************************************************************/
+void HandleDiagnosticRecord(SQLHANDLE hHandle, SQLSMALLINT hType, RETCODE RetCode)
+{
+	SQLSMALLINT iRec = 0;
+	SQLINTEGER iError;
+	WCHAR wszMessage[1000];
+	WCHAR wszState[SQL_SQLSTATE_SIZE + 1];
+	if (RetCode == SQL_INVALID_HANDLE) {
+		fwprintf(stderr, L"Invalid handle!\n");
+		return;
+	}
+	while (SQLGetDiagRec(hType, hHandle, ++iRec, wszState, &iError, wszMessage,
+		(SQLSMALLINT)(sizeof(wszMessage) / sizeof(WCHAR)), (SQLSMALLINT*)NULL) == SQL_SUCCESS) {
+		// Hide data truncated..
+		if (wcsncmp(wszState, L"01004", 5)) {
+			fwprintf(stderr, L"[%5.5s] %s (%d)\n", wszState, wszMessage, iError);
+		}
+	}
+}
+
+void show_error() 
+{
+	printf("error\n");
+}
+
+struct DB_INFO {
+	int id;
+	int hp;
+	int level;
+	int exp;
+	int x;
+	int y;
+};
+
+DB_INFO g_db_data[MAX_USER]; // db에 저장된 id를 저장
+int db_user_size = 0;
+
+void do_DB(DB_TYPE type)
+{
+	// Read Data for DB - DB에 저장된 데이터를 읽자 (ODBC를 통해서) - SQLBindCol()
+	// SQLBindCol() : DB에 들어있는 값과 C의 변수를 연결해줌
+	SQLHENV henv;
+	SQLHDBC hdbc;
+	SQLHSTMT hstmt = 0;
+	SQLRETURN retcode;
+	// Data를 읽을 변수
+	SQLWCHAR szName[NAME_LEN], szPhone[PHONE_LEN], sCustID[NAME_LEN];
+	SQLINTEGER dUser_id, dUser_x, dUser_y;
+	SQLINTEGER dUser_id, dUser_hp, dUser_level, dUser_exp, dUser_x, dUser_y;
+	// 실제 읽었을 때, 몇 byte를 읽었는지를 나타냄
+	//SQLLEN cbName = 0, cbCustID = 0, cbPhone = 0;
+	SQLLEN cbID = 0, cbX = 0, cbY = 0;
+
+	// SQL 명령어
+	SQLWCHAR sql[256];
+	if (type == DB_INSERT)
+		wsprintf(sql, L"INSERT user_data VALUES (%d, 100, 1, 0, %d, %d)", id, x, y);
+	else if (type == DB_UPDATE)
+		wsprintf(sql, L"UPDATE user_data SET user_hp = %d, user_level = %d, user_exp = %d, user_x = %d, user_y = %d WHERE user_id = %d",
+			g_clients[user_id].m_hp, g_clients[user_id].m_level, g_clients[user_id].m_exp, x, y, db_id);
+	else if (type == DB_LOAD)
+		wsprintf(sql, L"SELECT user_id, user_hp, user_level, user_exp, user_x, user_y FROM user_data");
+
+	// Allocate environment handle  
+	retcode = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv);
+
+	// Set the ODBC version environment attribute  
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) 
+	{
+		retcode = SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER*)SQL_OV_ODBC3, 0);
+
+		// Allocate connection handle  
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			retcode = SQLAllocHandle(SQL_HANDLE_DBC, henv, &hdbc);
+
+			// Set login timeout to 5 seconds  
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) 
+			{
+				SQLSetConnectAttr(hdbc, SQL_LOGIN_TIMEOUT, (SQLPOINTER)5, 0);
+
+				// Connect to data source  
+				retcode = SQLConnect(hdbc, (SQLWCHAR*)L"NorthWind", SQL_NTS, (SQLWCHAR*)NULL, 0, NULL, 0);
+
+				// Allocate statement handle  
+				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) 
+				{
+					retcode = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
+
+					retcode = SQLExecDirect(hstmt, (SQLWCHAR*)sql, SQL_NTS);
+					if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+					{
+						if (type == DB_LOAD)
+						{
+							// SQLBindCol - 필드를 어떤 변수를 통해서 읽은 것인가
+							// C 변수에 연결할 것이므로 SQL_"C"_LONG 을 넣어줌
+							// Bind columns 1, 2, and 3  
+							retcode = SQLBindCol(hstmt, 1, SQL_C_WCHAR, &sCustID, 100, &cbCustID);
+							retcode = SQLBindCol(hstmt, 2, SQL_C_WCHAR, szName, NAME_LEN, &cbName);
+							retcode = SQLBindCol(hstmt, 3, SQL_C_WCHAR, szPhone, PHONE_LEN, &cbPhone);
+
+							retcode = SQLBindCol(hstmt, 1, SQL_C_LONG, &dUser_id, 100, &cbID);
+							retcode = SQLBindCol(hstmt, 2, SQL_C_LONG, &dUser_hp, 100, &cbHp);
+							retcode = SQLBindCol(hstmt, 3, SQL_C_LONG, &dUser_level, 100, &cbLevel);
+							retcode = SQLBindCol(hstmt, 4, SQL_C_LONG, &dUser_exp, 100, &cbExp);
+							retcode = SQLBindCol(hstmt, 5, SQL_C_LONG, &dUser_x, 100, &cbX);
+							retcode = SQLBindCol(hstmt, 6, SQL_C_LONG, &dUser_y, 100, &cbY);
+
+							// Fetch and print each row of data. On an error, display a message and exit.  
+							for (int i = 0; ; i++)
+							{
+								retcode = SQLFetch(hstmt);
+								if (retcode == SQL_ERROR || retcode == SQL_SUCCESS_WITH_INFO)
+									show_error();
+								if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+								{
+									//replace wprintf with printf
+									//%S with %ls
+									//warning C4477: 'wprintf' : format string '%S' requires an argument of type 'char *'
+									//but variadic argument 2 has type 'SQLWCHAR *'
+									//wprintf(L"%d: %S %S %S\n", i + 1, sCustID, szName, szPhone);  
+									printf("%d: %ls %ls %ls\n", i + 1, sCustID, szName, szPhone);
+
+									wprintf(L"[%d] HP - %d, Level - %d Exp - %d  Pos - (x: %d, y: %d)\n", dUser_id, dUser_hp, dUser_level, dUser_exp, dUser_x, dUser_y);
+									g_db_data[i].id = dUser_id;
+									g_db_data[i].hp = dUser_hp;
+									g_db_data[i].level = dUser_level;
+									g_db_data[i].exp = dUser_exp;
+									g_db_data[i].x = dUser_x;
+									g_db_data[i].y = dUser_y;
+									++db_user_size;
+								}
+								else
+									HandleDiagnosticRecord(hstmt, SQL_HANDLE_STMT, retcode);
+							}
+						}
+					}
+
+					// Process data  
+					if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+					{
+						SQLCancel(hstmt);
+						SQLFreeHandle(SQL_HANDLE_STMT, hstmt);
+					}
+					SQLDisconnect(hdbc);
+				}
+				else
+					HandleDiagnosticRecord(hstmt, SQL_HANDLE_STMT, retcode);
+
+				SQLFreeHandle(SQL_HANDLE_DBC, hdbc);
+			}
+		}
+		SQLFreeHandle(SQL_HANDLE_ENV, henv);
+	}
 }
 
